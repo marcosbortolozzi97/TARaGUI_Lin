@@ -383,9 +383,9 @@ class EnsayoSession:
             raise ValueError(f"Parámetro faltante: {e}")
 
         # Validación de rango
-        if not (0 <= A_min < A_max <= 16383):
+        if not (0 <= A_min < A_max <= 8191):
             raise ValueError("Valores inválidos para CHA")
-        if not (0 <= B_min < B_max <= 16383):
+        if not (0 <= B_min < B_max <= 8191):
             raise ValueError("Valores inválidos para CHB")
 
         # Empaquetado: "<BBHH" = 1 byte header + 1 byte cmd + 2 uint16 little endian
