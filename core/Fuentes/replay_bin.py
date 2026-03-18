@@ -137,29 +137,4 @@ class ReplayBinSource:
 
         return int(avance)
 
-    """
-    def get_seconds(self) -> float | None:
-        
-        Estima el tiempo restante de replay en segundos, por eso la leyenda en la interfaz 
-        informa de manera aproximada.
-
-        Retorna:
-            float ≥ 0  : segundos aproximados que quedan.
-            0.0        : el replay ya terminó o no está running.
-            None       : intervalo es 0 (procesamiento instantáneo, cuando no es estimable).
-
-        Nota: retorna 0.0 tanto si "no se inició" como si "ya terminó".
-        
-        if not self._running:
-            return 0.0
-
-        bytes_rest = self._total_bytes - self._read_bytes
-        if bytes_rest <= 0:
-            return 0.0
-
-        if self.interval_s > 0:
-            chunks_left = bytes_rest / self.chunk_size
-            return chunks_left * self.interval_s
-
-        return None     # interval_s == 0 no se puede estimar
-    """
+   
