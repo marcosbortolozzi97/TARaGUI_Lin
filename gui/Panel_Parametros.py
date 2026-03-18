@@ -27,7 +27,7 @@ class PanelParametros(ttk.LabelFrame):
 
         # Rango válido de los umbrales en mV (validación física del sistema)
         self.MIN_VALUE = 0
-        self.MAX_VALUE = 16383
+        self.MAX_VALUE = 8191
 
         # Callback que MainWindow proporcionó. Se llama con el diccionario
         # de parámetros cuando el usuario presiona Aplicar y todo es válido.
@@ -77,10 +77,8 @@ class PanelParametros(ttk.LabelFrame):
         ttk.Label(self, text="Max:").grid(row=3, column=0, sticky="w")
 
         self.var_cha_min = tk.StringVar(value="0")
-        self.var_cha_max = tk.StringVar(value="16383")
+        self.var_cha_max = tk.StringVar(value="8191")
 
-        # validate="key": se valida en cada keystroke, no solo al salir del campo.
-        # validatecommand=vcmd: la función registrada arriba.
         self.entry_cha_min = ttk.Entry(
             self, textvariable=self.var_cha_min, width=8,
             validate="key", validatecommand=vcmd
@@ -96,14 +94,14 @@ class PanelParametros(ttk.LabelFrame):
         # Labels dinámicos con conversión a mV
         self.lbl_cha_min_mv = ttk.Label(self, text="cuentas ADC (0.0 mV)", 
                                          foreground="#3D3D3D")
-        self.lbl_cha_max_mv = ttk.Label(self, text="cuentas ADC (52571.4 mV)", 
+        self.lbl_cha_max_mv = ttk.Label(self, text="cuentas ADC (26293.1 mV)", 
                                          foreground="#3D3D3D")
         
         self.lbl_cha_min_mv.grid(row=2, column=2, sticky="w", padx=(5,0))
         self.lbl_cha_max_mv.grid(row=3, column=2, sticky="w", padx=(5,0))
 
         # ----------------------------------
-        # Umbrales Canal B (mismo esquema que Canal A)
+        # Umbrales Canal B 
         # ----------------------------------
         ttk.Label(self, text="Umbral CHB:", font=("TkDefaultFont", 9, "bold")).grid(
             row=4, column=0, sticky="w", pady=(5, 0)
@@ -113,7 +111,7 @@ class PanelParametros(ttk.LabelFrame):
         ttk.Label(self, text="Max:").grid(row=6, column=0, sticky="w")
 
         self.var_chb_min = tk.StringVar(value="0")
-        self.var_chb_max = tk.StringVar(value="16383")
+        self.var_chb_max = tk.StringVar(value="8191")
 
         self.entry_chb_min = ttk.Entry(
             self, textvariable=self.var_chb_min, width=8,
@@ -130,7 +128,7 @@ class PanelParametros(ttk.LabelFrame):
         # Labels dinámicos con conversión a mV
         self.lbl_chb_min_mv = ttk.Label(self, text="cuentas ADC (0.0 mV)", 
                                          foreground="#3D3D3D")
-        self.lbl_chb_max_mv = ttk.Label(self, text="cuentas ADC (52571.4 mV)", 
+        self.lbl_chb_max_mv = ttk.Label(self, text="cuentas ADC (26293.1 mV)", 
                                          foreground="#3D3D3D")
         
         self.lbl_chb_min_mv.grid(row=5, column=2, sticky="w", padx=(5,0))
@@ -149,7 +147,7 @@ class PanelParametros(ttk.LabelFrame):
         self.columnconfigure(1, weight=1)
         self.columnconfigure(2, weight=1)
 
-         # -------------------------------------------------
+        # -------------------------------------------------
         # Traza de cambios CON ACTUALIZACIÓN DE mV
         # -------------------------------------------------
         for var, lbl in [
@@ -179,7 +177,7 @@ class PanelParametros(ttk.LabelFrame):
 
         Validaciones en capas:
             Capa 1: conversión a enteros (falla si algún campo está vacío).
-            Capa 2: rango físico (cada valor entre 0 y 16383).
+            Capa 2: rango físico (cada valor entre 0 y 8191).
             Capa 3: lógica (min < max en cada canal).
             Capa 4: si todo pasa, construye el diccionario y notifica a MainWindow.
         """
@@ -301,3 +299,4 @@ class PanelParametros(ttk.LabelFrame):
             self.btn_apply
         ]:
             widget.config(state=state)
+
