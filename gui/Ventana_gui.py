@@ -113,9 +113,9 @@ class MainWindow(tk.Tk):
     # ==================================================
     def _construir_ui(self):
         
-        # ══════════════════════════════════════════════════════════════
+        # ---------------------------------
         # Header con logos institucionales
-        # ══════════════════════════════════════════════════════════════
+        # ---------------------------------
         header = tk.Frame(self, bg="#000000")  # Negro 
         header.pack(fill="x", pady=(0, 0))
         
@@ -132,13 +132,13 @@ class MainWindow(tk.Tk):
         
                 img = Image.open(path).convert("RGBA") # Asegura compatibilidad de color
         
-                # 1. Redimensionar con Lanczos (Ya lo tenés, es el mejor método)
+                # 1. Redimensionar con Lanczos 
                 img.thumbnail(size, Image.Resampling.LANCZOS)
         
                 # 2. Aplicar filtro de nitidez por convolución
                 img = img.filter(ImageFilter.SHARPEN)
         
-                # 3. (Opcional) Aumentar el contraste y la claridad específicamente
+                # 3. Aumentar el contraste y la claridad específicamente
                 enhancer = ImageEnhance.Sharpness(img)
                 img = enhancer.enhance(2.0)  # Factor de 2.0 para mayor nitidez
         
@@ -174,7 +174,7 @@ class MainWindow(tk.Tk):
         
         # Botón Ayuda 
         self.btn_ayuda = tk.Button(
-            frame_der, text="?", font=("Arial", 14, "bold"),
+            frame_der, text="?", font=("TkDefaultFont", 14, "bold"),
             bg="#FFFFFF", fg="black", activebackground="#E78B00",
             activeforeground="black", bd=0, width=2, cursor="hand2",
             relief="flat", command=self._mostrar_ayuda
@@ -183,7 +183,7 @@ class MainWindow(tk.Tk):
 
         # NUEVO: Botón Acerca de
         self.btn_acerca_de = tk.Button(
-            frame_der, text="ⓘ", font=("Arial", 14, "bold"),
+            frame_der, text="ⓘ", font=("TkDefaultFont", 14, "bold"),
             bg="#FFFFFF", fg="black", activebackground="#E78B00",
             activeforeground="black", bd=0, width=2, cursor="hand2",
             relief="flat", command=self._mostrar_acerca_de
@@ -306,7 +306,7 @@ class MainWindow(tk.Tk):
         """
         # Crear ventana modal
         win = tk.Toplevel(self)
-        win.title("Manual de Usuario - TAR GUI")
+        win.title("Manual de Usuario / Ayuda")
         win.geometry("700x600")
         win.resizable(True, True)
         win.transient(self)
@@ -336,7 +336,7 @@ class MainWindow(tk.Tk):
         # Título
         ttk.Label(
             scrollable_frame,
-            text="Manual de Operación - Interfaz para TAR",
+            text="MANUAL DE USUARIO - GUI a TAR",
             font=("TkDefaultFont", 14, "bold"),
             foreground="#1f77b4"
         ).pack(pady=(0, 10))
@@ -375,7 +375,7 @@ actual antes de conectar a otro puerto.
 disponibles.
 • Presionar el botón "Conectar".
 • Verificar que aparezca "- Puerto Conectado a COMx -".
-• Al presionar desconectar se debe verificar que el estado sea "- Puerto Desconectado -"
+• Al presionar desconectar se debe verificar que el estado sea "- Puerto Desconectado -".
             """
         )
         
@@ -384,7 +384,7 @@ disponibles.
             "2. CONFIGURACIÓN DE UMBRALES",
             """
 Los umbrales definen el rango de pulsos que se registran y guardan:
-• Valores en CUENTAS ADC (rango: 0 - 16383, donde 16383 = 52.57V).
+• Valores en CUENTAS ADC (rango: 0 - 8191, donde 8191 = 26.29V).
 • Configurar umbrales Min y Max para cada canal (A y B).
 • Presionar "Aplicar parámetros" antes de iniciar ensayo.
 
@@ -417,7 +417,7 @@ las siguientes herramientas de visualización:
 • MIN/MAX: ajustan el ZOOM visual.
 • Factor keV/mV: para Calibración energética del detector.
 • Offset keV: corrección del cero energético.
-• Botón "Full": Resetea a rango completo de visualización (0-16383).
+• Botón "Full": Resetea a rango completo de visualización (0-8191).
 • Para confirmar los cambios siempre se debe presionar el botón "Aplicar" del 
 correspondiente canal. 
 • Contador de pulsos: Muestra cantidad de eventos dentro de los parámetros 
@@ -539,75 +539,156 @@ BIN (bin/):
 
 
     def _mostrar_acerca_de(self):
-        """Popup 'Acerca de' con descripción de instituciones."""
-
-        ventana = tk.Toplevel(self)
-        ventana.title("Acerca de TARaGUI")
-        ventana.resizable(False, False)
-        ventana.configure(bg="#F4F6F7") 
-        ventana.grab_set()
-
-        frame = ttk.Frame(ventana, padding=15)
-        frame.pack(fill="both", expand=True)
-
-        texto_intro = (
-            "TAR - REGISTRADOR DIGITAL DE AMPLITUD Y TIEMPO (Time and Amplitude Recorder)\n"
-            "--------------------------------------------------\n\n"
-            "EL PROYECTO TAR:\n"
-            "El TAR es un dispositivo diseñado para la digitalización de los pulsos de energía\n"
-            "provenientes del decaimiento nuclear de muestras radiactivas, reemplazando a los \n"
-            "módulos de conteo de pulsos tradicionales. Luego, la información adquirida será \n"
-            "enviada a una PC, lo que permitirá una mejor manipulación y aprovechamiento de los datos.\n\n"
-            "INTERFAZ (GUI):\n"
-            "Esta interfaz permite la visualización en tiempo real y la reproducción de ensayos grabados.\n\n"
+        win = tk.Toplevel(self)
+        win.title("Acerca de")
+        win.geometry("700x600")
+        win.resizable(True, True)
+        win.transient(self)
+        win.grab_set()
+ 
+        main_frame = ttk.Frame(win)
+        main_frame.pack(fill="both", expand=True, padx=10, pady=10)
+ 
+        canvas = tk.Canvas(main_frame, bg="white")
+        scrollbar = ttk.Scrollbar(main_frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+ 
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+ 
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+ 
+        # ── Título ──────────────────────────────────────────────────
+        ttk.Label(
+            scrollable_frame,
+            text="INTERFAZ A TAR",
+            font=("Arial", 14, "bold"),
+            foreground="#1f77b4"
+        ).pack(pady=(0, 10))
+        
+        
+        # Sección 1: Presentacion
+        self._agregar_seccion(scrollable_frame,
+            "TAR",
+            """
+El TAR es un dispositivo diseñado para la digitalización de pulsos en cadenas de mediciones nucleares, 
+reemplazando a los módulos de conteo de pulsos tradicionales. Para cada pulsodetectado, se registra su 
+amplitud y su instante de ocurrencia (timestamp).Esta digitalizaciónde la información en bruto, que es 
+transferida a una PC, permite mayor flexibilidad y un mejor procesamiento y aprovechamiento de los datos.
+            """
         )
 
-        ttk.Label(frame, text=texto_intro, justify="left").pack(anchor="w", pady=(0,10))
+        # Sección 2: Datos TAR
+        self._agregar_seccion(scrollable_frame,
+            "Especificaciones técnicas TAR",
+            """
+            Canales de entrada			    2 canales single-ended
+            Polaridad de los pulsos de entrada	                    Pulsos negativos
+            Rango de tensión de entrada		    ± 25V
+            Resolución ADC				    14 bits (signed)
+            Precision ADC				    ±0.2% del rango
+            Resolución en amplitud			    3.21mV
+            Protección de entradas			    Hasta  ± 50V
+            Impedancia de entrada			    1MΩ||18pF
+            Tasa de muestreo			                    100MS/s
+            Resolución temporal			    10ns
+            Ancho de banda ADC			    70 MHz @ 3dB, 30 MHz @ 0.5dB, 20 MHz @ 0.1dB
+            Conexión con PC				    USB / UART
+            Fuente de alimentación			    12VCC 5A
+            """
+        )
 
-        ttk.Label(
-            frame,
-            text="LOGOS INSTITUCIONALES:",
-            font=("TkDefaultFont", 10, "bold")
-        ).pack(anchor="w", pady=(5,5))
+        # Sección 3: Interfaz
+        self._agregar_seccion(scrollable_frame,
+            "INTERFAZ (GUI)",
+            """
+El presente software provee una interfaz con el TAR para facilitar la toma de datos, almacenandolos 
+datos en la PC en archivos .csv y .bin, para su posterior procesamiento por parte del usuario, de 
+acuerdo al ensayo que desee realizar. También permite la visualización en tiempo real de los espectros 
+obtenidos y la reproducción de ensayos realizados anteriormente.
+            """
+        )
+        
+        # Sección 4: 
+        self._agregar_seccion(scrollable_frame,
+            "DESARROLLADORES",
+            """
+• Desarrollo de Hardware y Firmware TAR: Ing. Sebastián Gallo
+• Desarrollo de Interfaz de Usuario: Marcos Bortolozzi
 
-        # Frame donde irán los logos
-        logos_frame = ttk.Frame(frame)
-        logos_frame.pack(anchor="w", pady=5)
+Versión: 1.0.0 | 2026
+            """
+        )
 
+        # ── Sección logos institucionales ───────────────────────────
+ 
+        # Frame blanco que contiene la grilla de logos + descripción
+        logos_frame = tk.Frame(scrollable_frame, bg="white", padx=15, pady=10)
+        logos_frame.pack(fill="x")
+ 
+        # Lista de logos con su descripción.
+        # Formato: (archivo en carpeta logos/, texto descriptivo)
         instituciones = [
+            ("logo-ra4.png",   "Reactor Nuclear RA-4"),
+            ("ienri-logo.png", "Instituto de Estudios Nucleares y Radiaciones Ionizantes (IENRI)"),
+            ("dsi_logo.jpg",   "Departamento de Sistemas e Informática (DSI)"),
+            ("fceia-logo.jpg", "Facultad de Ciencias Exactas, Ingeniería y Agrimensura (FCEIA)"),
             ("UNR_logo.png",   "Universidad Nacional de Rosario (UNR)"),
-            ("FCEIA_logo.png", "Facultad de Ciencias Exactas, Ingeniería y Agrimensura (FCEIA)"),
-            ("DSI_logo.png",   "Departamento de Sistemas e Informática (DSI)"),
-            ("IENRI_logo.png", "Instituto de Estudios Nucleares y Radiaciones Ionizantes (IERNI)"),
-            ("RA4_logo.png",   "Reactor Nuclear RA-4"),
-            ("CNEA_logo.png",  "Comisión Nacional de Energía Atómica (CNEA)")
+            ("logo-cnea.png",  "Comisión Nacional de Energía Atómica (CNEA)")
         ]
-
+ 
+        # _logos_about guarda las referencias a los PhotoImage para evitar
+        # que el garbage collector los elimine mientras la ventana está abierta.
         self._logos_about = []
-
+ 
         for row, (archivo, descripcion) in enumerate(instituciones):
-
-            img = Image.open(Path("logos") / archivo)
-            img.thumbnail((40, 40), Image.Resampling.LANCZOS)
-            photo = ImageTk.PhotoImage(img)
-
-            self._logos_about.append(photo)
-
-            lbl_img = tk.Label(logos_frame, image=photo, bd=0)
-            lbl_img.grid(row=row, column=0, padx=(0,10), pady=3, sticky="w")
-
-            lbl_txt = ttk.Label(logos_frame, text=descripcion)
-            lbl_txt.grid(row=row, column=1, sticky="w", pady=3)
-
-        # Autores
-        ttk.Label(
-            frame,
-            text="\nAUTORES:\n"
-                 "• Desarrollo de Hardware y Firmware TAR: Sebastián Gallo\n"
-                 "• Desarrollo de Interfaz de Usuario: Marcos Bortolozzi\n\n"
-                 "Versión: 1.0.0 | 2026",
-            justify="left"
-        ).pack(anchor="w", pady=10)
+            try:
+                path = Path("logos") / archivo
+                img  = Image.open(path).convert("RGBA")
+                img.thumbnail((40, 40), Image.Resampling.LANCZOS)
+                photo = ImageTk.PhotoImage(img)
+                self._logos_about.append(photo)
+ 
+                tk.Label(logos_frame, image=photo, bg="white", bd=0).grid(
+                    row=row, column=0, padx=(0, 12), pady=4, sticky="w"
+                )
+            except Exception:
+                # Si el archivo no existe, muestra un placeholder de texto
+                tk.Label(logos_frame, text="[?]", bg="white", width=5).grid(
+                    row=row, column=0, padx=(0, 12), pady=4, sticky="w"
+                )
+ 
+            ttk.Label(logos_frame, text=descripcion, background="white").grid(
+                row=row, column=1, sticky="w", pady=4
+            )
+ 
+        # ── Pie de página ────────────────────────────────────────────
+        ttk.Separator(scrollable_frame, orient="horizontal").pack(fill="x", pady=10)
+ 
+        # ── Empaquetar canvas y scrollbar ────────────────────────────
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+ 
+        # ── Scroll con rueda del mouse ───────────────────────────────
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+ 
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+ 
+        def _on_closing():
+            canvas.unbind_all("<MouseWheel>")
+            win.destroy()
+ 
+        win.protocol("WM_DELETE_WINDOW", _on_closing)
+ 
+        # ── Centrar ventana ──────────────────────────────────────────
+        win.update_idletasks()
+        x = (win.winfo_screenwidth()  // 2) - (win.winfo_width()  // 2)
+        y = (win.winfo_screenheight() // 2) - (win.winfo_height() // 2)
+        win.geometry(f"+{x}+{y}")
 
 
     # ==================================================
@@ -620,7 +701,7 @@ BIN (bin/):
         se desconectó para que actualice los botones.
         """
         try:
-            self.serial_source = SerialSource(port=port, baudrate=115200)
+            self.serial_source = SerialSource(port=port, baudrate=115200, inactivity_timeout=2.0)
         except Exception as e:
             messagebox.showerror(
                 "Error de conexión",
@@ -992,11 +1073,12 @@ BIN (bin/):
             # porque puede haber un test-config.txt asociado al archivo
             self.ensayo_panel.boton_get_conf.config(state="normal")
         else:
-            self.ensayo_panel.var_estado.set(" - Ensayo finalizado - ")
+            self.ensayo_panel.var_estado.set(" - Recibiendo datos aún... - ")
             # En live no se habilita porque GET_CONF ya se hizo durante el cierre
             self.ensayo_panel.boton_get_conf.config(state="disabled")
 
         # Vuelve al texto "Listo para Ensayar" después de 1.2 segundos
         self.after(1200, self._reset_estado_ensayo)
+
 
 
