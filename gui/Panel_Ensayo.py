@@ -186,7 +186,7 @@ class PanelEnsayo(ttk.LabelFrame):
     def _get_conf(self):
         """Notifica a MainWindow que el usuario quiere ver la configuración TAR."""
         if self.on_get_conf:
-            self.on_get_conf()
+            self.on_get_conf() 
 
 
     # ======================================================
