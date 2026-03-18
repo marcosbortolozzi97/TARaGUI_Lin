@@ -227,3 +227,5 @@ class SerialPanel(ttk.LabelFrame):
         """Retorna el nombre del puerto actualmente seleccionado en el desplegable."""
         return self.port_var.get()
 
+
+
