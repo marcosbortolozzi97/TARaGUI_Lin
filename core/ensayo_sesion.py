@@ -516,7 +516,7 @@ class EnsayoSession:
 
     def _guardar_conf_final(self):
         """
-        Guarda test-config.txt con la configuración de histéresis.
+        Guarda test-config.txt con la configuración de histéresis. 
         Prioridad:
             1. _last_conf_struct (respuesta real del TAR via GET_CONF).
             2. _applied_params  (lo que se envió; backup si GET_CONF no llegó).
