@@ -2,7 +2,7 @@
 # gui/Panel_Histograma.py
 """
 Panel de visualización de histogramas.
-
+ 
 Responsabilidades:
     - Dibujar dos histogramas independientes (Canal A y Canal B) con matplotlib.
     - Actualizar los histogramas en tiempo real durante un ensayo (LIVE o REPLAY).
@@ -10,15 +10,22 @@ Responsabilidades:
       de cada histograma independientemente.
     - Mostrar un contador de pulsos por canal.
     - Mostrar eje secundario superior con conversión automática a keV.
-
-IMPORTANTE: Los histogramas trabajan en CUENTAS ADC (0-16383), no en mV.
-    - Eje X inferior: Cuentas ADC (valor directo del ADC de 14 bits)
+ 
+IMPORTANTE: Los histogramas trabajan en CUENTAS ADC (0-8191), no en mV.
+    - Eje X inferior: Cuentas ADC (valor directo del ADC de 14 bits, solo pulsos positivos)
     - Eje X superior: Energía en keV (conversión con factor y offset editables)
-
+ 
 Conversión aplicada:
     Cuentas ADC → mV → keV
     1 cuenta = 3.21 mV (según hardware ZMOD Scope 1410-105)
-    E[keV] = (ampl × factor) + offset (editable por el usuario)
+    E[keV] = (amp_mV × factor) + offset (editable por el usuario)
+ 
+NOTA:
+    Los bins internos (_bins) siempre cubren el rango completo ADC (0-8191),
+    independientemente del zoom visual configurado por el usuario (MIN/MAX).
+    El TAR determina qué pulsos detecta según sus umbrales de histéresis; este
+    panel simplemente muestra todos los pulsos recibidos sin ningún filtro.
+    MIN/MAX solo controla el xlim del eje (zoom), nunca descarta datos.
 """
 
 import tkinter as tk
@@ -31,6 +38,11 @@ from matplotlib.axes import Axes
 from core.ensayo_sesion import EnsayoSession
 from typing import Optional
 from matplotlib.ticker import MaxNLocator
+
+
+# Rango físico completo del ADC de 14 bits (solo pulsos positivos)
+ADC_MIN = 0
+ADC_MAX = 8191
 
 
 class PanelHistograma(ttk.LabelFrame):
@@ -55,18 +67,21 @@ class PanelHistograma(ttk.LabelFrame):
         # Contadores de eventos por canal (se muestran en la GUI)
         self._contadores = {"A": 0, "B": 0}
 
-        # Configuración visual por canal (rango de ejes y tamaño de bin)
-        # IMPORTANTE: Ahora trabajamos en CUENTAS ADC (0-16383), no en mV
-        # INTERVALO FIJO = 1 (máxima resolución)
+        # Configuración VISUAL por canal (solo afecta el zoom del eje X).
+        # NO filtra qué datos se acumulan: eso lo decide el TAR con sus umbrales.
+        # intervalo siempre 1 (máxima resolución).
         self._cfg = {
-            "A": {"min": 0, "max": 16383, "intervalo": 1},
-            "B": {"min": 0, "max": 16383, "intervalo": 1},
+            "A": {"min": ADC_MIN, "max": ADC_MAX, "intervalo": 1},
+            "B": {"min": ADC_MIN, "max": ADC_MAX, "intervalo": 1},
         }
 
         # Estructuras del histograma por canal:
-        #   _edges: arreglo numpy de bordes de bins (largo = N+1)
-        #   _bins:  arreglo numpy de frecuencias   (largo = N)
+        #   _edges: arreglo numpy de bordes de bins (largo = ADC_MAX + 1 = 8192 bordes)
+        #   _bins:  arreglo numpy de frecuencias   (largo = ADC_MAX     = 8191 bins)
         #   _hist_dirty: True si hay datos nuevos que no se dibujaron aún
+        #
+        # IMPORTANTE: _edges siempre cubre 0..8191 completo.
+        # El zoom visual se aplica únicamente en ax.set_xlim(), no aquí.
         self._edges      = {"A": None, "B": None}
         self._bins       = {"A": None, "B": None}
         self._hist_dirty = {"A": False, "B": False}
@@ -79,7 +94,7 @@ class PanelHistograma(ttk.LabelFrame):
         # Rango largo: 1 cuenta ADC = 3.21 mV (Tabla 6.1 del proyecto)
         self._MV_a_ADC = 3.21  # mV/cuenta
         
-        # Factor 2 y Offset: mV → keV (EDITABLE por canal)
+        # Factor 2 y Offset: mV → keV 
         # Valores por defecto para detector de centelleo típico
         self._cal_factor = {"A": 0.05, "B": 0.05}  # keV/mV por canal
         self._cal_offset = {"A": 0, "B": 0}         # keV por canal
@@ -157,11 +172,11 @@ class PanelHistograma(ttk.LabelFrame):
         ttk.Entry(cfg, textvariable=v_max, width=7).grid(row=0, column=3, padx=2)
         vars_["max"] = v_max
 
-        # Botón Full (resetear a rango completo 0-16383)
+        # Botón Full (resetear a rango completo 0-8191)
         ttk.Button(
             cfg,
-            text="Full",
-            width=5,
+            text="Rango Completo",
+            width=15,
             command=lambda c=canal, v=vars_: self._resetear_a_extremos(c, v)
         ).grid(row=0, column=4, padx=(2,10))
 
@@ -207,7 +222,7 @@ class PanelHistograma(ttk.LabelFrame):
             panel_derecho,
             text="CONTADOR DE PULSOS",
             font=("TkDefaultFont", 8)
-        ).grid(row=0, column=0, pady=(5, 5))
+        ).grid(row=0, column=0, pady=(0, 2))
 
         lbl_valor = ttk.Label(
             panel_derecho,
@@ -248,7 +263,7 @@ class PanelHistograma(ttk.LabelFrame):
         self.btn_borrar.config(state="normal" if flag else "disabled")
 
 
-    def _mostrar_status(self, canal: str, texto: str, timeout_ms=2000):
+    def _mostrar_status(self, canal: str, texto: str, timeout_ms=1750):
         """Feedback temporal por canal."""
         lbl = getattr(self, f"status_{canal}")
         lbl.config(text=texto)
@@ -296,10 +311,14 @@ class PanelHistograma(ttk.LabelFrame):
 
     def _recalcular_histograma(self, canal):
         """
-        Recalcula los bordes y reinicia los bins a cero según la configuración actual.
+        Inicializa edges y bins cubriendo SIEMPRE el rango completo ADC (0-8191).
+ 
+        Los edges no dependen de _cfg[canal]["min/max"]: ese rango es solo visual.
+        De este modo ningún pulso enviado por el TAR queda fuera del array de bins,
+        independientemente del zoom que haya configurado el usuario.
         """
-        cfg   = self._cfg[canal]
-        edges = np.arange(cfg["min"], cfg["max"] + cfg["intervalo"], cfg["intervalo"])
+        # Un bin por cada cuenta ADC posible → máxima resolución, rango completo
+        edges = np.arange(ADC_MIN, ADC_MAX + 2, 1)   # 8193 bordes → 8192 bins
         self._edges[canal] = edges
         self._bins[canal]  = np.zeros(len(edges) - 1, dtype=int)
         self._hist_dirty[canal] = True
@@ -326,23 +345,27 @@ class PanelHistograma(ttk.LabelFrame):
             if canal is None:
                 continue
 
-            # Los datos YA vienen en cuentas ADC (no dividir por 3.21)
+            # Los datos YA vienen en cuentas ADC
             amp_adc = ev["ampl"]
             
+            # Guardar siempre en _data (fuente de verdad para reconstrucciones)
             self._data[canal].append(amp_adc)
             self._contadores[canal] += 1
             self._actualizar_label_contador(canal)
-
+ 
+            # Acumular en _bins sin ningún filtro de rango:
+            # los edges cubren 0-8191 completo, por lo que todo pulso válido
+            # del TAR cae dentro del array.
             edges = self._edges[canal]
             bins  = self._bins[canal]
             if edges is None or bins is None:
                 continue
-
+ 
             idx = np.searchsorted(edges, amp_adc, side="right") - 1
             if 0 <= idx < len(bins):
                 bins[idx] += 1
                 self._hist_dirty[canal] = True
-
+ 
         # Paso 3: dibujar solo si pasó suficiente tiempo
         self._intentar_redibujar()
 
@@ -370,8 +393,9 @@ class PanelHistograma(ttk.LabelFrame):
         """
         Redibuja el histograma con eje keV usando calibración del canal.
         
-        OPTIMIZACIÓN: Con intervalo=1 tenemos hasta 16,384 bins. Dibujar
-        16k barras individuales es muy lento. Usamos plot con step en su lugar.
+        Solo se aplica zoom visual (xlim) con _cfg[canal]["min/max"].
+        Los bins completos (0-8191) siempre están disponibles; el zoom
+        simplemente recorta la vista sin descartar ningún dato.
         """
         ax:     Axes               = getattr(self, f"ax_{canal}")
         canvas: FigureCanvasTkAgg  = getattr(self, f"canvas_{canal}")
@@ -405,18 +429,25 @@ class PanelHistograma(ttk.LabelFrame):
                 # Pocos bins: usar bar (barras individuales) - normal
                 ax.bar(edges[:-1], bins, width=cfg["intervalo"], align="edge", color='#1f77b4')
 
-        # Actualizar límites y etiquetas del eje principal
+        # Actualizar límites y etiquetas del eje principal.
+        # xlim usa cfg["min/max"] → zoom visual puro, no afecta los datos acumulados.
         ax.set_title(f"Canal {canal}", fontsize=11, fontweight='bold')
         ax.set_xlabel("Amplitud (cuentas ADC)", fontsize=10)
         ax.set_ylabel("Frecuencia", fontsize=10)
         ax.set_xlim(cfg["min"], cfg["max"])
+ 
+        # ylim: altura máxima dentro de la ventana de zoom actual (no del total)
         if bins is not None and len(bins) > 0:
-            max_freq = np.max(bins)
+            v_min_idx = max(0, cfg["min"])
+            v_max_idx = min(len(bins), cfg["max"] + 1)
+            bins_visibles = bins[v_min_idx:v_max_idx]
+            max_freq = int(np.max(bins_visibles)) if len(bins_visibles) > 0 else 0
             ax.set_ylim(0, max_freq * 1.1 if max_freq > 0 else 1.0)
         else:
             ax.set_ylim(0, 1.0)
-        ax.grid(True, which='major', axis='both', linestyle='-', linewidth=0.4, color='#B0B0B0',alpha=0.6)  
-        ax.set_axisbelow(True)  # Si queremos asegurar que el grid quede detrás de las curvas
+ 
+        ax.grid(True, which='major', axis='both', linestyle='-', linewidth=0.4, color='#B0B0B0', alpha=0.6)  
+        ax.set_axisbelow(True)
         ax.xaxis.set_major_locator(MaxNLocator(integer=True))
 
         # ══════════════════════════════════════════════════════════════
@@ -445,24 +476,30 @@ class PanelHistograma(ttk.LabelFrame):
             setattr(self, f"ax_kev_{canal}", ax_kev)
         
         # El eje keV se actualiza automáticamente cuando cambia xlim del eje principal
-
         canvas.draw_idle()
 
 
     def _reconstruir_histograma_desde_datos(self, canal):
         """
-        Reconstruye _bins desde _data cuando el usuario cambia MIN/MAX.
+        Reconstruye _bins desde _data cuando el usuario cambia MIN/MAX o calibración.
+ 
+        Itera sobre TODOS los datos almacenados (sin filtro de rango):
+        los edges cubren 0-8191 completo, así que cada pulso recibido del TAR
+        vuelve a caer en su bin correspondiente sin pérdida.
+        El zoom visual (cfg["min/max"]) solo se aplica en _redibujar vía xlim.
         """
+        # Reiniciar estructura de bins (siempre rango completo)
         self._recalcular_histograma(canal)
-
+ 
         edges = self._edges[canal]
         bins  = self._bins[canal]
-
+ 
+        # Re-binar todos los datos sin ningún filtro de rango
         for amp in self._data[canal]:
             idx = np.searchsorted(edges, amp, side="right") - 1
             if 0 <= idx < len(bins):
                 bins[idx] += 1
-
+ 
         self._hist_dirty[canal] = True
 
 
@@ -470,8 +507,8 @@ class PanelHistograma(ttk.LabelFrame):
         """
         Recrea el eje keV cuando cambia la calibración (Factor/Offset).
         
-        Este método es COSTOSO computacionalmente, por eso solo se llama
-        cuando el usuario presiona Aplicar y cambia la calibración, NO en
+        Este método es costoso computacionalmente, por eso solo se llama
+        cuando el usuario presiona Aplicar y cambia la calibración, no en
         cada redibujado normal.
         """
         ax = getattr(self, f"ax_{canal}")
@@ -506,18 +543,20 @@ class PanelHistograma(ttk.LabelFrame):
     # ==================================================
     def _resetear_a_extremos(self, canal, vars_):
         """
-        Resetea MIN y MAX al rango completo del ADC (0-16383).
+        Resetea MIN y MAX al rango completo del ADC (0-8191).
         Actualiza solo los campos, no aplica los cambios automáticamente.
         """
-        vars_["min"].set("0")
-        vars_["max"].set("16383")
-        self._mostrar_status(canal, "Rango completo (presione Aplicar)")
-
+        vars_["min"].set(str(ADC_MIN))
+        vars_["max"].set(str(ADC_MAX))
+        self._mostrar_status(canal, "Rango completo")
 
     def _aplicar_cfg(self, canal, vars_):
         """
         Se ejecuta al presionar Aplicar en un histograma.
         Aplica tanto zoom (MIN/MAX) como calibración (Factor/Offset).
+ 
+        MIN/MAX se clampean al rango físico ADC y solo afectan ax.set_xlim().
+        NO reinician ni filtran los datos acumulados en _bins/_data.
         """
         try:
             vmin = int(vars_["min"].get())
@@ -528,8 +567,12 @@ class PanelHistograma(ttk.LabelFrame):
             messagebox.showerror("Error", "Valores inválidos")
             return
 
-        if vmin < 0 or vmax < 0:
+        if vmin < ADC_MIN or vmax < ADC_MIN:
             messagebox.showerror("Error", "MIN y MAX no pueden ser negativos")
+            return
+ 
+        if vmax > ADC_MAX:
+            messagebox.showerror("Error", f"MAX no puede superar {ADC_MAX}")
             return
 
         if vmax <= vmin:
@@ -545,6 +588,30 @@ class PanelHistograma(ttk.LabelFrame):
             factor != self._cal_factor[canal] or 
             offset != self._cal_offset[canal]
         )
+
+        # Guarda configuración del canal
+        self._cfg[canal] = {
+            "min":       vmin,
+            "max":       vmax,
+            "intervalo": 1,
+        }
+        
+        # Guarda calibración del canal
+        self._cal_factor[canal] = factor
+        self._cal_offset[canal] = offset
+
+        # _reconstruir_histograma_desde_datos recalcula bins sobre el rango completo
+        # y luego _redibujar aplica el zoom visual vía xlim.
+        # No se pierden datos aunque MIN/MAX hayan cambiado.
+        self._reconstruir_histograma_desde_datos(canal)
+        
+        # SOLO recrear eje keV si cambió la calibración
+        if calibracion_cambio:
+            self._recrear_eje_kev(canal)
+        
+        # Redibuja con el nuevo zoom aplicado
+        self._redibujar(canal)
+        self._mostrar_status(canal, "Valores correctos")
 
         # Guarda configuración del canal
         self._cfg[canal] = {
