@@ -20,6 +20,7 @@ Los paneles no hablan entre sí ni con el hardware. MainWindow es el
 
 from email import header
 from sys import platform
+from pdb import main
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import time
@@ -167,11 +168,11 @@ class MainWindow(tk.Tk):
                 lbl = tk.Label(frame_izq, image=logo, bg="#000000", bd=0)
                 lbl.pack(side="left", padx=8)
 
-        
+
         # ── Botones de Información y Ayuda ──────────────
         frame_der = tk.Frame(header, bg="#000000")
         frame_der.grid(row=0, column=2, sticky="e", padx=15)
-        
+
         # Botón Ayuda 
         self.btn_ayuda = tk.Button(
             frame_der, text="?", font=("TkDefaultFont", 14, "bold"),
@@ -295,6 +296,41 @@ class MainWindow(tk.Tk):
         )
         ttk.Label(main, text=txt, justify="left", font=("TkDefaultFont", 10)).pack(anchor="w")
 
+    # ==================================================
+    # Popup de LOG TAR
+    # ==================================================
+    def _popup_log_tar(self, msg: str):
+        """
+        Ventana flotante que muestra el log completo recibido del TAR
+        al finalizar un ensayo LIVE.
+        """
+        win = tk.Toplevel(self)
+        win.title("Log de configuración TAR")
+        win.resizable(False, False)
+        win.transient(self)
+
+        main = ttk.Frame(win, padding=15)
+        main.pack(fill="both", expand=True)
+
+        ttk.Label(
+            main,
+            text="AXI_TAR config:",
+            font=("TkDefaultFont", 10, "bold")
+        ).pack(anchor="w", pady=(0, 8))
+
+        ttk.Label(
+            main,
+            text=msg.strip(),
+            justify="left",
+            font=("TkDefaultFont", 10)
+        ).pack(anchor="w")
+
+        # Centrar ventana
+        win.update_idletasks()
+        x = 20
+        y = (win.winfo_screenheight() // 2) - (win.winfo_height() // 2)
+        win.geometry(f"+{x}+{y}")
+
 
     # ==================================================
     # Mostrar ayuda / manual de usuario
@@ -387,7 +423,6 @@ Los umbrales definen el rango de pulsos que se registran y guardan:
 • Valores en CUENTAS ADC (rango: 0 - 8191, donde 8191 = 26.29V).
 • Configurar umbrales Min y Max para cada canal (A y B).
 • Presionar "Aplicar parámetros" antes de iniciar ensayo.
-
             """
         )
         
@@ -506,8 +541,8 @@ BIN (bin/):
         x = (win.winfo_screenwidth() // 2) - (win.winfo_width() // 2)
         y = (win.winfo_screenheight() // 2) - (win.winfo_height() // 2)
         win.geometry(f"+{x}+{y}")
-    
-    
+
+
     def _agregar_seccion(self, parent, titulo, contenido):
         """Helper para agregar secciones al manual."""
         # Título de sección
@@ -1076,9 +1111,10 @@ Versión: 1.0.0 | 2026
             self.ensayo_panel.var_estado.set(" - Recibiendo datos aún... - ")
             # En live no se habilita porque GET_CONF ya se hizo durante el cierre
             self.ensayo_panel.boton_get_conf.config(state="disabled")
+            msg = self.ensayo.get_last_control_msg()
+            if msg:
+                self._popup_log_tar(msg)
 
         # Vuelve al texto "Listo para Ensayar" después de 1.2 segundos
         self.after(1200, self._reset_estado_ensayo)
-
-
 
