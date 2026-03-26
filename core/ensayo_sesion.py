@@ -3,12 +3,20 @@
 """
 Orquestador del ciclo de vida de un ensayo TAR.
 
-Tiene las siguientes responsabilidades:
+Responsabilidades:
     - Controlar start / stop del ensayo.
     - Conectar la fuente de datos (serie o replay) con el procesador.
     - Enviar / recibir comandos al hardware (START, STOP, GET_CONF, CHA_H, CHB_H).
     - Guardar datos incrementalmente durante LIVE y el archivo final al terminar.
-    - Exponer los registros procesados a la GUI.
+    - Exponer los registros procesados y el log de configuración a la GUI.
+ 
+FLUJO DE INICIO (modo LIVE):
+    1. apply_hysteresis()      → envía CHA_H + CHB_H (sin hilo)
+    2. get_conf_pre_start()    → envía GET_CONF, lee respuesta {LOG}
+                                 sincrónicamente antes de arrancar el hilo.
+                                 Guarda el texto completo en _last_control_msg.
+    3. _fuente._start()        → arranca hilo de lectura
+    4. send_command(START)     → TAR empieza a emitir frames binarios
 
 La GUI no habla directamente con el hardware ni con el procesador:
 todo pasa por esta clase.
@@ -32,9 +40,8 @@ from .procesar_datos_replay import ProcesaDatosReplay
 # ENUMS Y COMANDOS
 # =============================================================
 class TARMode(Enum):
-    """Modos de operación del ensayo."""
-    LIVE   = auto()     # Datos en tiempo real desde puerto serie
-    REPLAY = auto()     # Datos desde un archivo .bin grabado previamente
+    LIVE   = auto()
+    REPLAY = auto()
 
 
 class TARCommands:
@@ -56,12 +63,12 @@ class EnsayoSession:
         # ── Fuente y modo ────────────────────────────────────────────
         self._fuente    = fuente                    # SerialSource o ReplayBinSource
         self._mode      = mode
-        self._live_mode = (mode is TARMode.LIVE)    # Shortcut booleano
+        self._live_mode = (mode is TARMode.LIVE)
 
         # ── Procesador según modo ────────────────────────────────────
         if self._live_mode:
-            self._procesador = ProcesaDatosLive(async_mode=True)
-            self._procesador.start_async()   # Worker debe estar listo antes de start()
+            self._procesador = ProcesaDatosLive()
+            self._procesador.start_async()
         else:
             self._procesador = ProcesaDatosReplay()
 
@@ -70,24 +77,21 @@ class EnsayoSession:
         self._closing_pending = False   # True entre STOP y guardado final
         self._stop_sent       = False   # Evita enviar STOP doble
 
-        # ── Estado de GET_CONF ───────────────────────────────────────
-        # El TAR responde a GET_CONF con un bloque ASCII delimitado por 0x25.
-        # Estos atributos controlan la recepción y la construcción de la estructura
-        # de esa respuesta.
-        self._expecting_conf    = False
-        self._conf_requested    = False
-        self._conf_received     = False
-        self._conf_buffer       = ""                        # Texto ASCII acumulado
-        self._conf_deadline     = None                      # Timeout: si no llega en 2 s, se cierra sin ella
-        self._last_control_msg: Optional[str]  = None       # Texto completo de la última respuesta
-        self._last_conf_struct: Optional[dict] = None       # Diccionario parseado {CHA:{min,max}, CHB:{min,max}}
-        self._applied_params:  Optional[dict]  = None       # Parámetros que SE ENVIARON (backup si GET_CONF falla)
-
-        # ── Guardado incremental (solo LIVE) ─────────────────────────
-        self._save_interval_s = 15          # Cada 15 s se guarda un snapshot
-        self._next_save_t     = 0.0         # Timestamp (time.time) del próximo guardado
-        self._last_saved_idx  = 0           # Índice hasta donde ya se guardó en disco
-
+        # Estado GET_CONF
+        self._expecting_conf  = False
+        self._conf_requested  = False
+        self._conf_received   = False
+        self._conf_buffer     = ""
+        self._conf_deadline:   Optional[float] = None
+        self._last_control_msg: Optional[str]  = None   # Texto completo del log TAR
+        self._last_conf_struct: Optional[dict] = None   # {CHA:{min,max}, CHB:{min,max}}
+        self._applied_params:   Optional[dict] = None   # Backup si GET_CONF falla
+ 
+        # Guardado incremental
+        self._save_interval_s = 15
+        self._next_save_t     = 0.0
+        self._last_saved_idx  = 0
+ 
         # ── Directorios de salida ────────────────────────────────────
         # Se crean al llamar start(). Estructura:
         #   Ensayos_TAR/
@@ -117,22 +121,22 @@ class EnsayoSession:
     def start(self):
         """
         Inicia un ensayo nuevo.
-        - Resetea el procesador y los flags.
-        - Crea las carpetas de salida.
-        - Conecta la fuente con los callbacks del procesador.
-        - En modo LIVE: envía START al hardware.
+ 
+        En modo LIVE el orden es crítico:
+            1. get_conf_pre_start() — lee el log del TAR antes de arrancar el hilo
+            2. _fuente._start()     — arranca el hilo de lectura
+            3. send START           — TAR empieza a emitir frames binarios
         """
         if self._running:
             return
 
-        # Reseteo completo
         self._procesador.reset()
-        self._conf_received     = False
-        self._closing_pending   = False
-        self._expecting_conf    = False
-        self._conf_buffer       = ""
-        self._stop_sent         = False
-        self._conf_requested    = False
+        self._conf_received   = False
+        self._closing_pending = False
+        self._expecting_conf  = False
+        self._conf_buffer     = ""
+        self._stop_sent       = False
+        self._conf_requested  = False
 
         self._crear_carpetas_ensayo()
 
@@ -141,29 +145,26 @@ class EnsayoSession:
             self._last_saved_idx = 0
             self._next_save_t    = time.time() + self._save_interval_s
 
-        # Conectar fuente al procesador.
-        # data_callback:    cada chunk de bytes binarios va a feed() del procesador.
-        # control_callback: bloques ASCII (GET_CONF) van a _on_control_bytes().
+            # Paso 1: GET_CONF sincrónico ANTES de arrancar el hilo.
+            # El TAR responde al GET_CONF antes del START; el texto {LOG}
+            # llega por el puerto sin que el hilo esté activo.
+            self.get_conf_pre_start()
+ 
+        # Paso 2: arrancar hilo (en REPLAY también)
         self._fuente._start(
             self._procesador.feed,
             self._on_control_bytes
         )
-
-        # En LIVE se envía START al TAR para que empiece a emitir pulsos
+ 
+        # Paso 3: START en LIVE
         if self._live_mode:
             self._fuente.send_command(TARCommands.START)
-
+ 
         self._running = True
 
 
     def tick(self):
-        """
-        Se llama periódicamente desde la GUI.
-        Maneja dos tareas asíncronas:
-            1. Guardado incremental durante LIVE.
-            2. Cierre final cuando ya se recibió GET_CONF (o timeout).
-        """
-        # ── Guardado incremental (LIVE en curso) ─────────────────────
+        # ── Guardado incremental ─────────────────────────────────────
         if self._running and self._live_mode:
             now = time.time()
             if now >= self._next_save_t:
@@ -178,17 +179,16 @@ class EnsayoSession:
                 self._running = False
                 return
 
-        # ── Cierre de LIVE (se espera GET_CONF o timeout) ────────────
+        # ── Cierre LIVE ────────────
         if self._closing_pending:
             conf_ok      = self._conf_received
             conf_timeout = (self._conf_deadline is not None
                             and time.time() >= self._conf_deadline)
 
             if conf_ok or conf_timeout:
-                self._guardar_conf_final()      # Guarda test-config.txt
-                self._guardar_final()           # Guarda CSV + BIN completos
-                if self._fuente.is_running():
-                    self._fuente._stop()        # Detiene el hilo de lectura serie
+                self._guardar_conf_final()  # Guarda test-config.txt
+                self._guardar_final()       # Guarda CSV + BIN completos
+                self._fuente._stop()        # Detiene el hilo de lectura serie
                 self._closing_pending = False
                 self._running         = False
 
@@ -196,12 +196,9 @@ class EnsayoSession:
     def stop(self):
         """
         Inicia el cierre de un ensayo LIVE.
-
-        Secuencia:
-            1. Envía STOP al hardware (deja de emitir pulsos).
-            2. Detiene el worker async del procesador.
-            3. Solicita GET_CONF para guardar la configuración.
-            4. Pone _closing_pending=True; el cierre real lo hace tick().
+        Ya no solicita GET_CONF al finalizar porque se hizo antes del START.
+        El cierre espera el timeout de _conf_deadline por si hubiera
+        algún dato pendiente, pero _conf_received ya debería ser True.
         """
         if not self._running or self._stop_sent:
             return
@@ -209,22 +206,77 @@ class EnsayoSession:
         self._stop_sent = True
 
         if self._live_mode:
-            # Detener worker async: ya no van a llegar datos nuevos
             if hasattr(self._procesador, 'stop_async'):
                 self._procesador.stop_async()
 
             self._fuente.send_command(TARCommands.STOP)
-            self._request_final_conf()                  # GET_CONF automático
             self._closing_pending = True
-            self._conf_deadline   = time.time() + 2.0   # 2 seg de timeout
+            # Si get_conf_pre_start() recibió el log, conf_received=True
+            # y tick() cierra de inmediato. Si no, espera 2s de timeout.
+            self._conf_deadline = time.time() + 2.0   # 2 seg de timeout
 
 
     # =============================================================
-    # GET_CONF: solicitud y recepción
+    # GET_CONF
     # =============================================================
+    def get_conf_pre_start(self) -> bool:
+        """
+        Solicita GET_CONF y lee la respuesta de forma sincrónica y bloqueante
+        ANTES de arrancar el hilo de lectura.
+ 
+        El TAR responde al GET_CONF antes del START con un bloque ASCII
+        delimitado por '{' y '}'. Se lee directamente del puerto con
+        SerialSource.read_raw(), sin depender del hilo ni de callbacks.
+ 
+        Guarda el texto completo en _last_control_msg y el struct parseado
+        en _last_conf_struct. Retorna True si recibió respuesta válida.
+        """
+        if not self._live_mode:
+            return False
+        if not hasattr(self._fuente, "send_command"):
+            return False
+ 
+        # Limpiar estado previo
+        self._last_control_msg = None
+        self._last_conf_struct = None
+        self._conf_buffer      = ""
+        self._conf_received    = False
+        self._conf_requested   = True
+ 
+        # Enviar GET_CONF
+        self._fuente.send_command(TARCommands.GET_CONF)
+        log.info("GET_CONF pre-start enviado — leyendo respuesta...")
+ 
+        # Leer respuesta sincrónicamente (el hilo aún no está corriendo)
+        raw = self._fuente.read_raw(timeout_s=2.0)
+ 
+        if not raw:
+            log.warning("GET_CONF pre-start: no se recibió respuesta")
+            return False
+ 
+        # Extraer bloque entre '{' y '}'
+        texto = raw.decode("ascii", errors="ignore")
+        m = re.search(r"\{(.*?)\}", texto, re.DOTALL)
+        if not m:
+            log.warning("GET_CONF pre-start: no se encontró bloque { } en: %r", texto)
+            return False
+ 
+        contenido = m.group(1)
+        self._last_control_msg = contenido   # Texto completo del log TAR
+        self._conf_buffer      = contenido
+ 
+        if self._parse_conf_text(contenido):
+            self._conf_received = True
+            log.info("GET_CONF pre-start OK:\n%s", contenido.strip())
+            return True
+ 
+        log.warning("GET_CONF pre-start: respuesta recibida pero no parseada: %r", contenido)
+        return False
+ 
+ 
     def get_conf(self) -> None:
         """
-        Solicita al TAR la configuración actual (uso manual desde GUI).
+        Solicita GET_CONF de forma manual desde la GUI.
         Solo válido en LIVE y cuando NO hay ensayo en curso.
         """
         if not self._live_mode:
@@ -234,25 +286,6 @@ class EnsayoSession:
         if not hasattr(self._fuente, "send_command"):
             raise RuntimeError("La fuente no permite envío de comandos")
 
-        # Limpiar estado previo y enviar comando
-        self._last_control_msg  = None
-        self._last_conf_struct  = None
-        self._conf_buffer       = ""
-        self._expecting_conf    = True
-        self._fuente.send_command(TARCommands.GET_CONF)
-
-
-    def _request_final_conf(self):
-        """
-        GET_CONF automático al finalizar un ensayo LIVE.
-        Se guarda la configuración juntos con los datos del ensayo.
-        """
-        if self._conf_requested:
-            return
-        if not hasattr(self._fuente, "send_command"):
-            return
-
-        self._conf_requested    = True
         self._last_control_msg  = None
         self._last_conf_struct  = None
         self._conf_buffer       = ""
@@ -262,20 +295,15 @@ class EnsayoSession:
 
     def _on_control_bytes(self, data: bytes):
         """
-        Callback que SerialSource invoca cuando recibe un bloque ASCII
-        completo delimitado por 0x25 ... 0x25.
-
-        Si no estamos esperando una respuesta de GET_CONF, el bloque
-        se ignora silenciosamente.
+        Callback del hilo de lectura cuando recibe un bloque { } en modo COMANDO.
+        Solo activo si _expecting_conf=True (consulta manual desde GUI).
         """
         if not self._expecting_conf:
             return
 
-        # Decodifica a texto y acumula (puede llegar en varios bloques de tramas)
         text = data.decode("ascii", errors="ignore")
         self._conf_buffer += text
 
-        # Intenta construir la estructura de configuración; si tiene CHA y CHB se da por completado
         if self._parse_conf_text(self._conf_buffer):
             self._last_control_msg = self._conf_buffer
             self._expecting_conf   = False
@@ -284,31 +312,26 @@ class EnsayoSession:
 
     def _parse_conf_text(self, text: str) -> bool:
         """
-        Extrae los valores de histéresis del texto ASCII del TAR.
-        El formato esperado es el siguiente (puede tener texto extra antes/después):
-            AXI_TAR
-            CHA: histeresis (1300 ; 1500) mV
-            CHB: histeresis (1200 ; 1600) mV
-
-        Usa regex flexible para tolerar espacios o texto extra.
-        Retorna True cuando ambos canales fueron analizados y construidos exitosamente.
+        Extrae los umbrales de histéresis del texto ASCII del TAR.
+        Formato esperado (dentro del bloque { }):
+            CHA: histéresis (min ; max)
+            CHB: histéresis (min ; max)
+        Retorna True solo si ambos canales fueron parseados correctamente.
         """
         conf = {}
         try:
-            # Busca patrón CHA ... (min ; max)
             m = re.search(r"CHA.*?\(\s*(\d+)\s*;\s*(\d+)\s*\)",
                           text, re.IGNORECASE | re.DOTALL)
             if m:
                 conf["CHA"] = {"min": int(m.group(1)), "max": int(m.group(2))}
 
-            # Busca patrón CHB ... (min ; max)
             m = re.search(r"CHB.*?\(\s*(\d+)\s*;\s*(\d+)\s*\)",
                           text, re.IGNORECASE | re.DOTALL)
             if m:
                 conf["CHB"] = {"min": int(m.group(1)), "max": int(m.group(2))}
 
             self._last_conf_struct = conf if conf else None
-            return len(conf) == 2       # Solo True si ambos canales están
+            return len(conf) == 2
 
         except Exception as e:
             log.warning("Error interpretando configuración TAR", exc_info=e)
@@ -316,14 +339,7 @@ class EnsayoSession:
 
 
     def _parse_conf_from_file(self, text: str) -> Optional[dict]:
-        """
-        Parsea el archivo test-config.txt que se guarda junto al ensayo 
-        (este se guarda junto con los archivos binarios en live).
-        Formato:
-            CHA min max
-            CHB min max
-        (Usado al cargar un replay para mostrar la configuración original.)
-        """
+        """Parsea test-config.txt (formato: CHA min max / CHB min max)."""
         try:
             conf = {}
             for line in text.splitlines():
@@ -344,7 +360,6 @@ class EnsayoSession:
         self._last_conf_struct = conf
         return conf is not None
 
-
     def clear_conf(self):
         """Limpia la configuración en memoria (usar antes de una nueva consulta)."""
         self._last_control_msg = None
@@ -352,28 +367,37 @@ class EnsayoSession:
 
 
     # =============================================================
-    # HISTÉRESIS: envío de parámetros al TAR
+    # CONSULTAS PARA LA GUI
+    # =============================================================
+    def get_last_conf_struct(self) -> Optional[dict]:
+        """Retorna la configuración parseada {CHA:{min,max}, CHB:{min,max}}."""
+        return self._last_conf_struct
+ 
+    def get_last_control_msg(self) -> Optional[str]:
+        """
+        Retorna el texto completo del log recibido del TAR.
+        La GUI lo muestra en el popup al finalizar un ensayo LIVE.
+        """
+        return self._last_control_msg
+ 
+ 
+    # =============================================================
+    # HISTÉRESIS
     # =============================================================
     def apply_hysteresis(self, params: dict):
         """
-        Empaqueta y envía las ventanas de histéresis al TAR.
-        Debe llamarse ANTES de start().
-
-        Args:
-            params: diccionario con claves:
-                "umbral_cha_min", "umbral_cha_max",
-                "umbral_chb_min", "umbral_chb_max"
-
-        Formato binario enviado:
-            CHA_H: 0x25 | 0xA0 | MIN (16 bits LE) | MAX (16 bits LE)
-            CHB_H: 0x25 | 0xB0 | MIN (16 bits LE) | MAX (16 bits LE)
+        Empaqueta y envía CHA_H + CHB_H al TAR antes de start().
+ 
+        Formato (alineado con serial_port.c del hardware):
+            param = (max << 16) | min   → uint32 Big-Endian
+            [0x25][cmd][B3][B2][B1][B0] = 6 bytes
+            700ms entre comandos        → usleep(700000) del C
         """
         if not self._live_mode:
             raise RuntimeError("No se pueden aplicar parámetros en modo REPLAY")
         if not hasattr(self._fuente, "send_command"):
             raise RuntimeError("La fuente no permite envío de comandos")
 
-        # Extraer valores
         try:
             A_min = int(params["umbral_cha_min"])
             A_max = int(params["umbral_cha_max"])
@@ -388,14 +412,20 @@ class EnsayoSession:
         if not (0 <= B_min < B_max <= 8191):
             raise ValueError("Valores inválidos para CHB")
 
-        # Empaquetado: "<BBHH" = 1 byte header + 1 byte cmd + 2 uint16 little endian
-        cmd_cha = struct.pack("<BBHH", 0x25, 0xA0, A_min, A_max)
-        cmd_chb = struct.pack("<BBHH", 0x25, 0xB0, B_min, B_max)
+        param_cha = (A_max << 16) | A_min
+        param_chb = (B_max << 16) | B_min
 
+        cmd_cha = struct.pack(">BBI", 0x25, 0xA0, param_cha)
+        cmd_chb = struct.pack(">BBI", 0x25, 0xB0, param_chb)
+
+        log.info("Enviando CHA_H: min=%d max=%d (param=0x%08X)", A_min, A_max, param_cha)
         self._fuente.send_command(cmd_cha)
+        time.sleep(0.7)
+ 
+        log.info("Enviando CHB_H: min=%d max=%d (param=0x%08X)", B_min, B_max, param_chb)
         self._fuente.send_command(cmd_chb)
+        time.sleep(0.7)
 
-        # Guarda backup en caso de que GET_CONF falle al finalizar
         self._applied_params = {
             "CHA": {"min": A_min, "max": A_max},
             "CHB": {"min": B_min, "max": B_max},
@@ -406,23 +436,13 @@ class EnsayoSession:
     # DATOS PARA LA GUI
     # =============================================================
     def get_registros(self) -> List[Dict]:
-        """Retorna la lista completa de registros procesados."""
         return self._procesador.registros
 
     def get_eventos_desde(self, idx: int) -> List[Dict]:
-        """
-        Retorna registros desde el índice idx (inclusive).
-        Usado por la GUI para obtener solo los datos nuevos desde la
-        última actualización del histograma.
-        """
         regs = self._procesador.registros
         if idx < 0 or idx >= len(regs):
             return []
         return regs[idx:]
-
-    def get_last_conf_struct(self) -> Optional[dict]:
-        """Retorna la configuración parseada del TAR (o None si no hay)."""
-        return self._last_conf_struct
 
 
     # =============================================================
@@ -454,8 +474,6 @@ class EnsayoSession:
             return
 
         ts = time.strftime("%d%m%Y-%H%M%S")
-
-        # Separar por canal para generar un CSV por cada uno
         por_canal = {0: [], 1: []}
         for r in nuevos:
             por_canal[r["chan"]].append(r)
@@ -470,7 +488,6 @@ class EnsayoSession:
                 for i, r in enumerate(regs):
                     w.writerow([i, int(r["tstamp"]), int(r["ampl"])])
 
-        # BIN parcial: los 8 bytes originales de cada frame
         with open(self.bin_dir / f"{ts}_test-raw.bin", "wb") as f:
             for r in nuevos:
                 f.write(r["_raw"])
@@ -487,7 +504,6 @@ class EnsayoSession:
             return
 
         ts = time.strftime("%d%m%Y-%H%M%S")
-
         # CSV completos por canal
         por_canal = {0: [], 1: []}
         for r in self._procesador.registros:
@@ -516,11 +532,10 @@ class EnsayoSession:
 
     def _guardar_conf_final(self):
         """
-        Guarda test-config.txt con la configuración de histéresis. 
+        Guarda test-config.txt.
         Prioridad:
-            1. _last_conf_struct (respuesta real del TAR via GET_CONF).
-            2. _applied_params  (lo que se envió; backup si GET_CONF no llegó).
-        Si no hay ninguno, no se guarda archivo.
+            1. _last_conf_struct (respuesta real del TAR via GET_CONF pre-start)
+            2. _applied_params  (backup: lo que se envió)
         """
         if not self._live_mode:
             return
@@ -533,4 +548,12 @@ class EnsayoSession:
         with open(conf_path, "w", encoding="utf-8") as f:
             f.write(f"CHA {conf['CHA']['min']} {conf['CHA']['max']}\n")
             f.write(f"CHB {conf['CHB']['min']} {conf['CHB']['max']}\n")
+
+        # Guardar también el texto completo del log si está disponible
+        if self._last_control_msg:
+            log_path = self.bin_dir / "test-log.txt"
+            with open(log_path, "w", encoding="utf-8") as f:
+                f.write(self._last_control_msg)
+            log.info("Log TAR guardado en %s", log_path)
+
 
