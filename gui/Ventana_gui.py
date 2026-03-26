@@ -337,7 +337,7 @@ class MainWindow(tk.Tk):
 
         # Centrar ventana
         win.update_idletasks()
-        x = 20
+        x = 80
         y = (win.winfo_screenheight() // 2) - (win.winfo_height() // 2)
         win.geometry(f"+{x}+{y}")
 
