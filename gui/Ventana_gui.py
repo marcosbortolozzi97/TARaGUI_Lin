@@ -1,4 +1,5 @@
 
+
 # gui/Ventana_gui.py
 """
 Ventana principal de la aplicación TAR GUI.
@@ -36,10 +37,14 @@ from core.ensayo_sesion          import EnsayoSession, TARMode
 from core.Fuentes.fuente_serie   import SerialSource
 from core.Fuentes.replay_bin     import ReplayBinSource
 
+LANCZOS = Image.Resampling.LANCZOS if hasattr(Image, 'Resampling') else Image.LANCZOS
 
 class MainWindow(tk.Tk):
     def __init__(self):
         super().__init__()
+        self.tk.call('tk', 'scaling', 1.2)
+        #style = ttk.Style(self)
+        #style.theme_use('clam')
 
         self.title("TAR GUI")
         
@@ -95,6 +100,8 @@ class MainWindow(tk.Tk):
         # se detiene antes de destruir la ventana.
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
+        self.BASE_DIR = Path(__file__).resolve().parent.parent
+
         # ---------------------------------
         # Construcción de la GUI
         # ---------------------------------
@@ -127,14 +134,16 @@ class MainWindow(tk.Tk):
         # ── Función helper para cargar logos ──
         def cargar_logo(filename, size):
             try:
-                path = Path("logos") / filename
+                
+                path = self.BASE_DIR / "logos" / filename
+                
                 if not path.exists():
                     return None
         
                 img = Image.open(path).convert("RGBA") # Asegura compatibilidad de color
         
                 # 1. Redimensionar con Lanczos 
-                img.thumbnail(size, Image.Resampling.LANCZOS)
+                img.thumbnail(size, LANCZOS)
         
                 # 2. Aplicar filtro de nitidez por convolución
                 img = img.filter(ImageFilter.SHARPEN)
@@ -145,6 +154,7 @@ class MainWindow(tk.Tk):
         
                 return ImageTk.PhotoImage(img)
             except Exception as e:
+                print(f"ERROR cargando {filename}: {type(e).__name__}: {e}")
                 return None
         
         # ── Logos panel izquierdo ──────────
@@ -154,11 +164,11 @@ class MainWindow(tk.Tk):
         self.logos_instituciones = []  # Mantener referencias para evitar garbage collection
         logos_izq = [
             ("logo_UNR.png", (40, 40)),
-            ("FCEIA_logo.png", (60, 40)),
-            ("DSI_logo.png", (41, 41)),
+            ("FCEIA_logo.PNG", (60, 40)),
+            ("DSI_logo.PNG", (41, 41)),
             ("logo_IENRI.png", (65, 55)),
-            ("RA4_logo.png", (70, 40)),
-            ("CNEA_logo.png", (42, 37.5))
+            ("RA4_logo.PNG", (70, 40)),
+            ("CNEA_logo.PNG", (42, 37.5))
         ]
         
         for idx, (filename, size) in enumerate(logos_izq):
@@ -171,11 +181,11 @@ class MainWindow(tk.Tk):
 
         # ── Botones de Información y Ayuda ──────────────
         frame_der = tk.Frame(header, bg="#000000")
-        frame_der.grid(row=0, column=2, sticky="e", padx=15)
+        frame_der.grid(row=0, column=1, sticky="e", padx=15)
 
         # Botón Ayuda 
         self.btn_ayuda = tk.Button(
-            frame_der, text="?", font=("TkDefaultFont", 14, "bold"),
+            frame_der, text="?", font=("DejaVu Sans", 14, "bold"),
             bg="#FFFFFF", fg="black", activebackground="#E78B00",
             activeforeground="black", bd=0, width=2, cursor="hand2",
             relief="flat", command=self._mostrar_ayuda
@@ -184,7 +194,7 @@ class MainWindow(tk.Tk):
 
         # NUEVO: Botón Acerca de
         self.btn_acerca_de = tk.Button(
-            frame_der, text="ⓘ", font=("TkDefaultFont", 14, "bold"),
+            frame_der, text="ⓘ", font=("DejaVu Sans", 14, "bold"),
             bg="#FFFFFF", fg="black", activebackground="#E78B00",
             activeforeground="black", bd=0, width=2, cursor="hand2",
             relief="flat", command=self._mostrar_acerca_de
@@ -211,7 +221,7 @@ class MainWindow(tk.Tk):
         ttk.Label(
             left_panel,
             text="PANEL DE CONTROL",
-            font=("TkDefaultFont", 13, "bold")
+            font=("DejaVu Sans", 13, "bold")
         ).pack(pady=0, padx=100, anchor="center")
 
         # left_inner es el contenedor real donde se empaquetan los paneles funcionales.
@@ -255,7 +265,7 @@ class MainWindow(tk.Tk):
         ttk.Label(
             right_panel,
             text="GRÁFICAS",
-            font=("TkDefaultFont", 13, "bold")
+            font=("DejaVu Sans", 13, "bold")
         ).pack(pady=0, padx=8, anchor="center")
 
         # El panel histograma empieza sin ensayo conectado (None).
@@ -287,14 +297,14 @@ class MainWindow(tk.Tk):
         ttk.Label(
             main,
             text="AXI_TAR",
-            font=("TkDefaultFont", 11, "bold")
+            font=("DejaVu Sans", 11, "bold")
         ).pack(anchor="w", pady=(0, 8))
 
         txt = (
             f"CHA: histéresis ({conf['CHA']['min']} ; {conf['CHA']['max']}) cuentas\n"
             f"CHB: histéresis ({conf['CHB']['min']} ; {conf['CHB']['max']}) cuentas"
         )
-        ttk.Label(main, text=txt, justify="left", font=("TkDefaultFont", 10)).pack(anchor="w")
+        ttk.Label(main, text=txt, justify="left", font=("DejaVu Sans", 10)).pack(anchor="w")
 
     # ==================================================
     # Popup de LOG TAR
@@ -315,14 +325,14 @@ class MainWindow(tk.Tk):
         ttk.Label(
             main,
             text="AXI_TAR config:",
-            font=("TkDefaultFont", 10, "bold")
+            font=("DejaVu Sans", 10, "bold")
         ).pack(anchor="w", pady=(0, 8))
 
         ttk.Label(
             main,
             text=msg.strip(),
             justify="left",
-            font=("TkDefaultFont", 10)
+            font=("DejaVu Sans", 10)
         ).pack(anchor="w")
 
         # Centrar ventana
@@ -373,7 +383,7 @@ class MainWindow(tk.Tk):
         ttk.Label(
             scrollable_frame,
             text="MANUAL DE USUARIO - GUI a TAR",
-            font=("TkDefaultFont", 14, "bold"),
+            font=("DejaVu Sans", 14, "bold"),
             foreground="#1f77b4"
         ).pack(pady=(0, 10))
         
@@ -502,7 +512,7 @@ BIN (bin/):
         ttk.Label(
             scrollable_frame,
             text="Sistema Digitalizador TAR - Reactor RA-4",
-            font=("TkDefaultFont", 9, "italic"),
+            font=("DejaVu Sans", 9, "italic"),
             foreground="gray"
         ).pack(pady=(0, 5))
         
@@ -552,7 +562,7 @@ BIN (bin/):
         tk.Label(
             titulo_frame,
             text=titulo,
-            font=("TkDefaultFont", 11, "bold"),
+            font=("DejaVu Sans", 11, "bold"),
             bg="#1B4F72",
             fg="white",
             anchor="w",
@@ -564,7 +574,7 @@ BIN (bin/):
         tk.Label(
             parent,
             text=contenido.strip(),
-            font=("TkDefaultFont", "Liberation Sans", "DejaVu Sans", 10),
+            font=("DejaVu Sans", 10),
             justify="left",
             anchor="w",
             bg="white",
@@ -576,7 +586,7 @@ BIN (bin/):
     def _mostrar_acerca_de(self):
         win = tk.Toplevel(self)
         win.title("Acerca de")
-        win.geometry("700x600")
+        win.geometry("775x600")
         win.resizable(True, True)
         win.transient(self)
         win.grab_set()
@@ -600,7 +610,7 @@ BIN (bin/):
         ttk.Label(
             scrollable_frame,
             text="INTERFAZ A TAR",
-            font=("Arial", 14, "bold"),
+            font=("DejaVu Sans", 14, "bold"),
             foreground="#1f77b4"
         ).pack(pady=(0, 10))
         
@@ -620,19 +630,19 @@ transferida a una PC, permite mayor flexibilidad y un mejor procesamiento y apro
         self._agregar_seccion(scrollable_frame,
             "Especificaciones técnicas TAR",
             """
-            Canales de entrada			    2 canales single-ended
-            Polaridad de los pulsos de entrada	                    Pulsos negativos
-            Rango de tensión de entrada		    ± 25V
-            Resolución ADC				    14 bits (signed)
-            Precision ADC				    ±0.2% del rango
-            Resolución en amplitud			    3.21mV
-            Protección de entradas			    Hasta  ± 50V
-            Impedancia de entrada			    1MΩ||18pF
-            Tasa de muestreo			                    100MS/s
-            Resolución temporal			    10ns
-            Ancho de banda ADC			    70 MHz @ 3dB, 30 MHz @ 0.5dB, 20 MHz @ 0.1dB
-            Conexión con PC				    USB / UART
-            Fuente de alimentación			    12VCC 5A
+            Canales de entrada			                    2 canales single-ended
+Polaridad de los pulsos de entrada	                    Pulsos negativos
+Rango de tensión de entrada		                    ± 25V
+Resolución ADC				    14 bits (signed)
+Precision ADC				    ±0.2% del rango
+Resolución en amplitud			    3.21mV
+Protección de entradas			    Hasta  ± 50V
+Impedancia de entrada			    1MΩ||18pF
+Tasa de muestreo			                    100MS/s
+Resolución temporal			    10ns
+Ancho de banda ADC			    70 MHz @ 3dB, 30 MHz @ 0.5dB, 20 MHz @ 0.1dB
+Conexión con PC				    USB / UART
+Fuente de alimentación			    12VCC 5A
             """
         )
 
@@ -681,7 +691,7 @@ Versión: 1.0.0 | 2026
  
         for row, (archivo, descripcion) in enumerate(instituciones):
             try:
-                path = Path("logos") / archivo
+                path = self.BASE_DIR / "logos" / archivo
                 img  = Image.open(path).convert("RGBA")
                 img.thumbnail((40, 40), Image.Resampling.LANCZOS)
                 photo = ImageTk.PhotoImage(img)
@@ -709,12 +719,19 @@ Versión: 1.0.0 | 2026
  
         # ── Scroll con rueda del mouse ───────────────────────────────
         def _on_mousewheel(event):
-            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
- 
+            if event.num == 4 or event.delta > 0:
+                canvas.yview_scroll(-1, "units")
+            elif event.num == 5 or event.delta < 0:
+                canvas.yview_scroll(1, "units")
+
         canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        canvas.bind_all("<Button-4>", _on_mousewheel)  # Linux scroll up
+        canvas.bind_all("<Button-5>", _on_mousewheel)  # Linux scroll down
  
         def _on_closing():
             canvas.unbind_all("<MouseWheel>")
+            canvas.unbind_all("<Button-4>")
+            canvas.unbind_all("<Button-5>")
             win.destroy()
  
         win.protocol("WM_DELETE_WINDOW", _on_closing)
@@ -1117,4 +1134,7 @@ Versión: 1.0.0 | 2026
 
         # Vuelve al texto "Listo para Ensayar" después de 1.2 segundos
         self.after(1200, self._reset_estado_ensayo)
+
+
+
 
